@@ -63,7 +63,7 @@ class Chef::Handler::Slack < Chef::Handler
 
   def message(context)
     if run_status.success?
-      return ":white_check_mark: #{Chef::Config[:chef_server_url]}\n#{run_status_message_detail(context['message_detail_level'])}"
+      return ":white_check_mark: #{Chef::Config[:chef_server_url]}"
     else
       ":sos: #{Chef::Config[:chef_server_url]}\n```#{run_status.backtrace}```"
     end
@@ -105,7 +105,14 @@ class Chef::Handler::Slack < Chef::Handler
           short: true
         },
         ]
-    }]
+    },
+    {
+      text: "#{run_status_message_detail(context['message_detail_level'])}"
+    },
+    {
+      text: "#{run_status.formatted_exception unless run_status.success?}"
+    }
+  ]
   end
 
   def slack_message(message, attachment, webhook)
@@ -143,7 +150,6 @@ class Chef::Handler::Slack < Chef::Handler
 
   def run_status_cookbook_detail(cookbook_detail_level)
     cookbook_detail_level ||= @cookbook_detail_level
-    return run_status.formatted_exception unless run_status.success?
     case cookbook_detail_level
     when "all"
       cookbooks = Chef.run_context.cookbook_collection
