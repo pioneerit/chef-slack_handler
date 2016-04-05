@@ -37,9 +37,9 @@ default['chef_client']['handler']['slack']['username']   = nil
 default['chef_client']['handler']['slack']['icon_url']   = nil
 # OR
 default['chef_client']['handler']['slack']['icon_emoji'] = nil
-# Valid options here are basic, elapsed, resources
-default['chef_client']['handler']['slack']['message_detail_level'] = 'basic'
-# Valid options here are off, all
-default['chef_client']['handler']['slack']['cookbook_detail_level'] = 'off'
+# Detail about resources
+default['chef_client']['handler']['slack']['message_detail'] = true
+# Detail about cookbooks
+default['chef_client']['handler']['slack']['cookbook_detail'] = true
 # Only report failures
 default['chef_client']['handler']['slack']['fail_only'] = false

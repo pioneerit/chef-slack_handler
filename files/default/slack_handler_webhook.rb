@@ -22,7 +22,7 @@ require 'net/http'
 require "timeout"
 
 class Chef::Handler::Slack < Chef::Handler
-  attr_reader :webhooks, :username, :config, :timeout, :icon_emoji, :fail_only, :message_detail_level, :cookbook_detail_level
+  attr_reader :webhooks, :username, :config, :timeout, :icon_emoji, :fail_only, :message_detail, :cookbook_detail
 
   def initialize(config = {})
     Chef::Log.debug('Initializing Chef::Handler::Slack')
@@ -33,8 +33,8 @@ class Chef::Handler::Slack < Chef::Handler
     @username = @config[:username]
     @webhooks = @config[:webhooks]
     @fail_only = @config[:fail_only]
-    @message_detail_level = @config[:message_detail_level]
-    @cookbook_detail_level = @config[:cookbook_detail_level]
+    @message_detail = @config[:message_detail]
+    @cookbook_detail = @config[:cookbook_detail]
   end
 
   def report
@@ -69,21 +69,18 @@ class Chef::Handler::Slack < Chef::Handler
     end
   end
 
-  def run_status_message_detail(message_detail_level)
-    message_detail_level ||= @message_detail_level
-    case message_detail_level
-    when "resources"
-      "resources updated \n #{updated_resources.join(', ')}" unless updated_resources.nil?
-    end
+  def run_status_message_detail
+    updated_resources.join("\n") unless updated_resources.nil?
   end
 
   def attachment_message(context)
-    [
+    cookbook_detail = context['cookbook_detail'] ? context['cookbook_detail'] : @cookbook_detail
+    message_detail = context['message_detail'] ? context['message_detail'] : @message_detail
+    attachment = [
       {
         fallback: "#{run_status_human_readable} on *_#{run_status.node.name}_*",
         color: run_status_color,
         author_name: 'chef_client',
-        text: run_status_cookbook_detail(context['cookbook_detail_level']),
         fields: [
           {
             title: 'Status',
@@ -106,14 +103,12 @@ class Chef::Handler::Slack < Chef::Handler
             short: true
           }
         ]
-      },
-      {
-        text: run_status_message_detail(context['message_detail_level'])
-      },
-      {
-        text: (run_status.formatted_exception unless run_status.success?)
       }
     ]
+    attachment.push(author_name: 'Cookbooks', text: run_status_cookbook_detail) if cookbook_detail
+    attachment.push(author_name: 'Resources', text: run_status_message_detail) if message_detail
+    attachment.push(author_name: 'Exception', text: run_status.formatted_exception) unless run_status.success?
+    attachment
   end
 
   def slack_message(message, attachment, webhook)
@@ -149,12 +144,8 @@ class Chef::Handler::Slack < Chef::Handler
     run_status.success? ? "good" : "danger"
   end
 
-  def run_status_cookbook_detail(cookbook_detail_level)
-    cookbook_detail_level ||= @cookbook_detail_level
-    case cookbook_detail_level
-    when "all"
-      cookbooks = Chef.run_context.cookbook_collection
-      "cookbooks: #{cookbooks.values.map { |x| x.name.to_s + ' ' + x.version }}"
-    end
+  def run_status_cookbook_detail
+    cookbooks = Chef.run_context.cookbook_collection
+    cookbooks.values.map { |x| x.name.to_s + ' ' + x.version }.join("\n")
   end
 end
