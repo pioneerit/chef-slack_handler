@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.6.1
+- Update formatting messages
+
 ## v0.6.0
 - Fix a bug in run_context where we should be calling `Chef.run_context`, correct an incorrect method name. (#22)
 

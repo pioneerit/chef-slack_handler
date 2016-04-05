@@ -43,17 +43,11 @@ class Chef::Handler::Slack < Chef::Handler
       webhook = node['chef_client']['handler']['slack']['webhooks'][val]
       Timeout.timeout(@timeout) do
         sending_to_slack = false
-
-        if run_status.success?
-          unless fail_only(webhook)
-            slack_message(" :white_check_mark: #{message(webhook)}", webhook['url'])
-            sending_to_slack = true
-          end
-        else
-          sending_to_slack = true
-          slack_message(" :skull: #{message(webhook)}", webhook['url'], run_status.exception)
+        sending_to_slack = true unless ( run_status.success? and fail_only(webhook) )
+        if sending_to_slack
+          Chef::Log.info("Sending report to Slack webhook #{webhook['url']}")  
+          slack_message("#{message(webhook)}", attachment_message(webhook), webhook['url'])
         end
-        Chef::Log.info("Sending report to Slack webhook #{webhook['url']}") if sending_to_slack
       end
     end
   rescue Exception => e
@@ -68,54 +62,92 @@ class Chef::Handler::Slack < Chef::Handler
   end
 
   def message(context)
-    "Chef client run #{run_status_human_readable} on #{run_status.node.name}#{run_status_cookbook_detail(context['cookbook_detail_level'])}#{run_status_message_detail(context['message_detail_level'])}"
+    if run_status.success?
+      return ":white_check_mark: #{Chef::Config[:chef_server_url]}\n#{run_status_message_detail(context['message_detail_level'])}"
+    else
+      ":sos: #{Chef::Config[:chef_server_url]}\n```#{run_status.backtrace}```"
+    end
   end
 
   def run_status_message_detail(message_detail_level)
     message_detail_level ||= @message_detail_level
     case message_detail_level
-    when "elapsed"
-      " (#{run_status.elapsed_time} seconds). #{updated_resources.count} resources updated" unless updated_resources.nil?
     when "resources"
-      " (#{run_status.elapsed_time} seconds). #{updated_resources.count} resources updated \n #{updated_resources.join(', ')}" unless updated_resources.nil?
+      "resources updated \n #{updated_resources.join(', ')}" unless updated_resources.nil?
     end
   end
 
-  def slack_message(message, webhook, text_attachment = nil)
-    Chef::Log.debug("Sending slack message #{message} to webhook #{webhook} #{text_attachment ? 'with' : 'without'} a text attachment")
+  def attachment_message(context)
+    [{
+      fallback: "#{run_status_human_readable} on *_#{run_status.node.name}_*",
+      color: run_status_color,
+      author_name: 'chef_client',
+      text: "#{run_status_cookbook_detail(context['cookbook_detail_level'])}",
+      fields: [
+        {
+          title: 'Status',
+          value: "#{run_status_human_readable}",
+          short: true
+        },
+        {
+          title: 'Node',
+          value: "#{run_status.node.name}",
+          short: true
+        },
+        {
+          title: 'Elapsed',
+          value: "#{run_status.elapsed_time}",
+          short: true
+        },
+        {
+          title: 'Updated',
+          value: "#{updated_resources.count unless updated_resources.nil?}",
+          short: true
+        },
+        ]
+    }]
+  end
+
+  def slack_message(message, attachment, webhook)
+    Chef::Log.debug("Sending slack message #{message} to webhook #{webhook} #{attachment ? 'with' : 'without'} a text attachment")
     uri = URI.parse(webhook)
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
     http.verify_mode = OpenSSL::SSL::VERIFY_NONE
     req = Net::HTTP::Post.new(uri.path, 'Content-Type' => 'application/json')
-    req.body = request_body(message, text_attachment)
+    req.body = request_body(message, attachment)
     http.request(req)
   end
 
-  def request_body(message, text_attachment)
+  def request_body(message, attachment)
     body = {}
     body[:username] = @username unless @username.nil?
-    body[:text] = message
+    body[:text] = message unless message.nil?
     # icon_url takes precedence over icon_emoji
     if @icon_url
       body[:icon_url] = @icon_url
     elsif @icon_emoji
       body[:icon_emoji] = @icon_emoji
     end
-    body[:attachments] = [{ text: text_attachment }] unless text_attachment.nil?
+    body[:attachments] = attachment
     body.to_json
   end
 
   def run_status_human_readable
-    run_status.success? ? "succeeded" : "failed"
+    run_status.success? ? "SUCCEEDED" : "FAILED"
+  end
+
+  def run_status_color
+    run_status.success? ? "good" : "danger"
   end
 
   def run_status_cookbook_detail(cookbook_detail_level)
     cookbook_detail_level ||= @cookbook_detail_level
+    return run_status.formatted_exception unless run_status.success?
     case cookbook_detail_level
     when "all"
       cookbooks = Chef.run_context.cookbook_collection
-      " using cookbooks #{cookbooks.values.map { |x| x.name.to_s + ' ' + x.version }}"
+      "cookbooks: #{cookbooks.values.map { |x| x.name.to_s + ' ' + x.version }}"
     end
   end
 end
