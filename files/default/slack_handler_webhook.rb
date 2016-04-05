@@ -43,10 +43,10 @@ class Chef::Handler::Slack < Chef::Handler
       webhook = node['chef_client']['handler']['slack']['webhooks'][val]
       Timeout.timeout(@timeout) do
         sending_to_slack = false
-        sending_to_slack = true unless ( run_status.success? and fail_only(webhook) )
+        sending_to_slack = true unless run_status.success? && fail_only(webhook)
         if sending_to_slack
-          Chef::Log.info("Sending report to Slack webhook #{webhook['url']}")  
-          slack_message("#{message(webhook)}", attachment_message(webhook), webhook['url'])
+          Chef::Log.info("Sending report to Slack webhook #{webhook['url']}")
+          slack_message(message, attachment_message(webhook), webhook['url'])
         end
       end
     end
@@ -61,7 +61,7 @@ class Chef::Handler::Slack < Chef::Handler
     @fail_only
   end
 
-  def message(context)
+  def message
     if run_status.success?
       return ":white_check_mark: #{Chef::Config[:chef_server_url]}"
     else
@@ -78,41 +78,42 @@ class Chef::Handler::Slack < Chef::Handler
   end
 
   def attachment_message(context)
-    [{
-      fallback: "#{run_status_human_readable} on *_#{run_status.node.name}_*",
-      color: run_status_color,
-      author_name: 'chef_client',
-      text: "#{run_status_cookbook_detail(context['cookbook_detail_level'])}",
-      fields: [
-        {
-          title: 'Status',
-          value: "#{run_status_human_readable}",
-          short: true
-        },
-        {
-          title: 'Node',
-          value: "#{run_status.node.name}",
-          short: true
-        },
-        {
-          title: 'Elapsed',
-          value: "#{run_status.elapsed_time}",
-          short: true
-        },
-        {
-          title: 'Updated',
-          value: "#{updated_resources.count unless updated_resources.nil?}",
-          short: true
-        },
+    [
+      {
+        fallback: "#{run_status_human_readable} on *_#{run_status.node.name}_*",
+        color: run_status_color,
+        author_name: 'chef_client',
+        text: run_status_cookbook_detail(context['cookbook_detail_level']),
+        fields: [
+          {
+            title: 'Status',
+            value: run_status_human_readable,
+            short: true
+          },
+          {
+            title: 'Node',
+            value: run_status.node.name,
+            short: true
+          },
+          {
+            title: 'Elapsed',
+            value: run_status.elapsed_time,
+            short: true
+          },
+          {
+            title: 'Updated',
+            value: (updated_resources.count unless updated_resources.nil?),
+            short: true
+          }
         ]
-    },
-    {
-      text: "#{run_status_message_detail(context['message_detail_level'])}"
-    },
-    {
-      text: "#{run_status.formatted_exception unless run_status.success?}"
-    }
-  ]
+      },
+      {
+        text: run_status_message_detail(context['message_detail_level'])
+      },
+      {
+        text: (run_status.formatted_exception unless run_status.success?)
+      }
+    ]
   end
 
   def slack_message(message, attachment, webhook)
